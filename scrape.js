@@ -392,22 +392,18 @@ async function extractCimri(page) {
 }
 
 // ── N11 çıkarıcı ───────────────────────────────────────────────────────────────
-// NOT: N11 de Trendyol gibi Cloudflare arkasında — geliştirme ortamından canlı
-// DOM'a erişilemedi, aşağıdaki seçiciler N11'in bilinen kart yapılarına göre
-// (birden fazla olası varyant, Trendyol/Cimri çıkarıcılarındaki gibi zincirli
-// fallback ile) yazıldı. İlk gerçek çalıştırmada (self-hosted runner'da,
-// gerçek Chrome ile) 0 ürün dönerse ya da eksik/bozuk veri gelirse, N11'in
-// arama sayfasını (headless:false olduğu için) canlı izleyip bu seçicileri
-// güncellemek gerekebilir — tıpkı Trendyol/Cimri'nin de zamanında ayarlandığı
-// gibi.
+// Gerçek N11 kart yapısı canlı taramada (debug-n11.js ile) doğrulandı:
+// kartın kendisi <a class="product-item" data-prod-id="..."> — başlık ayrı
+// bir "productName" elemanında DEĞİL, resmin üstündeki [title] div'inde veya
+// img[alt]'ta; fiyat "h3.price-currency" (satış fiyatı) ve "div.price"
+// (liste/eski fiyatı) sınıflarında; görsel karuselinde ilk slayt gerçek
+// src'yi taşıyor, sonrakiler lazy-load placeholder (data: URI).
 async function extractN11(page) {
   await scrollPage(page);
   const tryExtract = () => page.evaluate(() => {
-    let kartlar = document.querySelectorAll(
-      'div.column.pro, li.column, div[class*="productCard"], div[class*="product-card"], [data-testid="product-card"]'
-    );
+    let kartlar = document.querySelectorAll('a.product-item[data-prod-id]');
     if (!kartlar.length) {
-      // Son çare: doğrudan ürün sayfasına giden linkleri kart gibi kullan.
+      // N11 markup'ı değiştiyse son çare: doğrudan ürün linklerini kullan.
       kartlar = document.querySelectorAll('a[href*="/urun/"]');
     }
     return Array.from(kartlar).map(kart => {
@@ -415,17 +411,19 @@ async function extractN11(page) {
       const href = a?.getAttribute('href') || '';
       const link = href.startsWith('http') ? href : `https://www.n11.com${href}`;
       const isim = (
-        kart.querySelector('.productName, [class*="product-name"], [data-testid="product-name"], h3')?.textContent
-        || a?.getAttribute('title')
+        kart.querySelector('[title]')?.getAttribute('title')
+        || kart.querySelector('img[alt]')?.getAttribute('alt')
         || ''
       ).trim();
-      const marka = kart.querySelector('.brand, [class*="brand"]')?.textContent?.trim() || '';
-      let yeniF = kart.querySelector('.newPrice, [class*="newPrice"], [class*="price-new"], [data-testid="price-value"], ins')?.textContent?.trim() || '';
-      let eskiF = kart.querySelector('.oldPrice, [class*="oldPrice"], [class*="price-old"], del')?.textContent?.trim() || '';
-      const puan = kart.querySelector('.ratingText, [class*="rating"]')?.textContent?.trim() || '';
-      const gorsel = kart.querySelector('img')?.getAttribute('data-original')
-        || kart.querySelector('img')?.getAttribute('data-src')
-        || kart.querySelector('img')?.src || '';
+      const marka = ''; // N11 kartlarında ayrı bir marka etiketi yok.
+      let yeniF = kart.querySelector('h3.price-currency, .price-currency')?.textContent?.trim() || '';
+      let eskiF = kart.querySelector('div.price, .price')?.textContent?.trim() || '';
+      const puan = kart.querySelector('.rate-number-text')?.textContent?.replace(/[()]/g, '').trim() || '';
+      // Karusel: sadece gerçek bir http(s) src'si olan (data: URI/placeholder
+      // olmayan) İLK ürün görselini al.
+      const gorsel = Array.from(kart.querySelectorAll('img.listing-items-image'))
+        .map(img => img.getAttribute('src') || '')
+        .find(src => /^https?:/.test(src)) || '';
       if (!yeniF && eskiF) { yeniF = eskiF; eskiF = ''; }
       return { isim, marka, yeniF, eskiF, puan, gorsel, link };
     }).filter(u => u.isim && u.link);
@@ -567,7 +565,7 @@ async function scrapeAllSources(sources, siteFilter) {
       // extractN11'deki birincil seçicilerle aynı + href fallback'i — bu
       // sayede waitForSelector, tam seçici tutmasa bile en azından ürün
       // linkleri DOM'a geldiğinde ilerleyebilir.
-      cardSel: 'div.column.pro, li.column, div[class*="productCard"], div[class*="product-card"], [data-testid="product-card"], a[href*="/urun/"]',
+      cardSel: 'a.product-item[data-prod-id], a[href*="/urun/"]',
       cookieSel: '#onetrust-accept-btn-handler, button:has-text("Kabul Et")',
       // N11'in "pg" sayfa parametresini her sayfa için yeniden yazar.
       pageUrl: (base, p) => {
