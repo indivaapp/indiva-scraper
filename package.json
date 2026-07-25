@@ -1,0 +1,19 @@
+{
+  "name": "trendyol-scraper",
+  "version": "3.0.0",
+  "description": "İNDİVA Trendyol scraper — PC'de listener.js (Firestore tetik + cron)",
+  "main": "listener.js",
+  "scripts": {
+    "start": "node listener.js",
+    "scrape": "node scrape.js"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "cheerio": "^1.0.0",
+    "firebase-admin": "^14.0.0",
+    "node-cron": "^4.5.0",
+    "playwright": "^1.61.0"
+  }
+}

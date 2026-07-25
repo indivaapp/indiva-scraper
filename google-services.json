@@ -1,0 +1,97 @@
+{
+  "project_info": {
+    "project_number": "905697488486",
+    "project_id": "indiva-expo",
+    "storage_bucket": "indiva-expo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905697488486:android:ac93a67b8eb91cd84b07a7",
+        "android_client_info": {
+          "package_name": "com.app.indiva"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4sjujBvM9WwvrsIllRAsP3EhPDkjmMCs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905697488486:android:8e3d000aea2dd1474b07a7",
+        "android_client_info": {
+          "package_name": "com.indiva.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4sjujBvM9WwvrsIllRAsP3EhPDkjmMCs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905697488486:android:695764cd7c4070074b07a7",
+        "android_client_info": {
+          "package_name": "com.indiva.panel"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4sjujBvM9WwvrsIllRAsP3EhPDkjmMCs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "905697488486-4gijablobd6s2tavbg4vo3r3gqcdpcjg.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
