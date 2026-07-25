@@ -1255,9 +1255,20 @@ async function runScrape(trigger = 'manual', site = null) {
 
 module.exports = { runScrape, processPublishQueue, processAutoPublishQueue, db, CONTROL, setStatus, loadSources };
 
-// CLI: doğrudan çalıştırılırsa tek tarama yap
+// CLI: doğrudan çalıştırılırsa tek tarama yap.
+// İsteğe bağlı ilk argüman site filtresidir — verilirse SADECE o sitenin
+// kaynakları taranır (panelin site seçicisiyle aynı davranış):
+//   node scrape.js          → tüm aktif siteler
+//   node scrape.js n11      → yalnızca N11
+//   node scrape.js trendyol → yalnızca Trendyol
 if (require.main === module) {
-  runScrape('cli')
+  const siteArg = (process.argv[2] || '').trim().toLowerCase() || null;
+  if (siteArg && !SITE_META[siteArg]) {
+    console.error(`Bilinmeyen site: "${siteArg}". Geçerli değerler: ${Object.keys(SITE_META).join(', ')}`);
+    process.exit(1);
+  }
+  if (siteArg) console.log(`[CLI] Yalnızca "${SITE_META[siteArg].label}" taranacak.`);
+  runScrape('cli', siteArg)
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
 }
