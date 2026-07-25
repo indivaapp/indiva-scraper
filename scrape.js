@@ -238,6 +238,8 @@ const DEFAULT_SOURCES = [
     enabled: true,
   },
   // ── Cimri ──
+  // NOT (2026-07-16): Cimri kod seviyesinde devre dışı (bkz. CIMRI_DISABLED
+  // aşağıda) — kaynak tanımı burada duruyor, ileride tekrar açılabilir.
   {
     id: 'cimri_indirim',
     site: 'cimri',
@@ -247,12 +249,27 @@ const DEFAULT_SOURCES = [
     pages: 3,
     enabled: true,
   },
+  // ── N11 ──
+  // Cimri'nin yerini alıyor — "İndirimde" filtresi + satış hacmine göre
+  // sıralanmış arama sonuçları. `pg` (sayfa) parametresi pageUrl() ile her
+  // sayfa için yeniden yazılıyor, baseUrl'deki pg=3 sadece kullanıcının
+  // verdiği orijinal linkten kalma, göz ardı ediliyor.
+  {
+    id: 'n11_indirim',
+    site: 'n11',
+    label: 'İndirimdeki Ürünler',
+    description: "N11'de indirimde olan, satış hacmine göre sıralı ürünler",
+    baseUrl: 'https://www.n11.com/arama?in-deal=true&srt=SALES_VOLUME&promotions=2076410',
+    pages: 3,
+    enabled: true,
+  },
 ];
 
 // Site bazlı ayarlar (etiket, çerez butonu, sayfalama biçimi)
 const SITE_META = {
   trendyol: { label: 'Trendyol', store: 'Trendyol' },
   cimri:    { label: 'Cimri',    store: 'Cimri' },
+  n11:      { label: 'N11',      store: 'N11' },
 };
 
 // ── Yardımcılar ────────────────────────────────────────────────────────────────
@@ -374,7 +391,57 @@ async function extractCimri(page) {
   }
 }
 
-const EXTRACTORS = { trendyol: extractTrendyol, cimri: extractCimri };
+// ── N11 çıkarıcı ───────────────────────────────────────────────────────────────
+// NOT: N11 de Trendyol gibi Cloudflare arkasında — geliştirme ortamından canlı
+// DOM'a erişilemedi, aşağıdaki seçiciler N11'in bilinen kart yapılarına göre
+// (birden fazla olası varyant, Trendyol/Cimri çıkarıcılarındaki gibi zincirli
+// fallback ile) yazıldı. İlk gerçek çalıştırmada (self-hosted runner'da,
+// gerçek Chrome ile) 0 ürün dönerse ya da eksik/bozuk veri gelirse, N11'in
+// arama sayfasını (headless:false olduğu için) canlı izleyip bu seçicileri
+// güncellemek gerekebilir — tıpkı Trendyol/Cimri'nin de zamanında ayarlandığı
+// gibi.
+async function extractN11(page) {
+  await scrollPage(page);
+  const tryExtract = () => page.evaluate(() => {
+    let kartlar = document.querySelectorAll(
+      'div.column.pro, li.column, div[class*="productCard"], div[class*="product-card"], [data-testid="product-card"]'
+    );
+    if (!kartlar.length) {
+      // Son çare: doğrudan ürün sayfasına giden linkleri kart gibi kullan.
+      kartlar = document.querySelectorAll('a[href*="/urun/"]');
+    }
+    return Array.from(kartlar).map(kart => {
+      const a = kart.matches('a') ? kart : kart.querySelector('a[href*="/urun/"], a[href]');
+      const href = a?.getAttribute('href') || '';
+      const link = href.startsWith('http') ? href : `https://www.n11.com${href}`;
+      const isim = (
+        kart.querySelector('.productName, [class*="product-name"], [data-testid="product-name"], h3')?.textContent
+        || a?.getAttribute('title')
+        || ''
+      ).trim();
+      const marka = kart.querySelector('.brand, [class*="brand"]')?.textContent?.trim() || '';
+      let yeniF = kart.querySelector('.newPrice, [class*="newPrice"], [class*="price-new"], [data-testid="price-value"], ins')?.textContent?.trim() || '';
+      let eskiF = kart.querySelector('.oldPrice, [class*="oldPrice"], [class*="price-old"], del')?.textContent?.trim() || '';
+      const puan = kart.querySelector('.ratingText, [class*="rating"]')?.textContent?.trim() || '';
+      const gorsel = kart.querySelector('img')?.getAttribute('data-original')
+        || kart.querySelector('img')?.getAttribute('data-src')
+        || kart.querySelector('img')?.src || '';
+      if (!yeniF && eskiF) { yeniF = eskiF; eskiF = ''; }
+      return { isim, marka, yeniF, eskiF, puan, gorsel, link };
+    }).filter(u => u.isim && u.link);
+  });
+  try {
+    return await tryExtract();
+  } catch (e) {
+    if (e.message?.includes('Execution context was destroyed') || e.message?.includes('navigation')) {
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+      return await tryExtract().catch(() => []);
+    }
+    return [];
+  }
+}
+
+const EXTRACTORS = { trendyol: extractTrendyol, cimri: extractCimri, n11: extractN11 };
 
 // ── Tüm aktif kaynakları tara ─────────────────────────────────────────────────
 // siteFilter verilirse yalnızca o sitenin kaynakları taranır (örn. 'trendyol' / 'cimri').
@@ -496,6 +563,19 @@ async function scrapeAllSources(sources, siteFilter) {
       cookieSel: '#onetrust-accept-btn-handler',
       pageUrl: (base, p) => (p === 1 ? base : `${base}?page=${p}`),
     },
+    n11: {
+      // extractN11'deki birincil seçicilerle aynı + href fallback'i — bu
+      // sayede waitForSelector, tam seçici tutmasa bile en azından ürün
+      // linkleri DOM'a geldiğinde ilerleyebilir.
+      cardSel: 'div.column.pro, li.column, div[class*="productCard"], div[class*="product-card"], [data-testid="product-card"], a[href*="/urun/"]',
+      cookieSel: '#onetrust-accept-btn-handler, button:has-text("Kabul Et")',
+      // N11'in "pg" sayfa parametresini her sayfa için yeniden yazar.
+      pageUrl: (base, p) => {
+        const u = new URL(base);
+        u.searchParams.set('pg', String(p));
+        return u.toString();
+      },
+    },
   };
 
   try {
@@ -561,6 +641,9 @@ async function uploadToFirestore(urunler) {
 
     // İndirim filtresi siteye göre: Trendyol ≥%30 (sahte/Plus fiyatlarını ele).
     // Cimri zaten "indirimli ürünler" sayfası (küçük indirimler), filtre uygulanmaz.
+    // N11 kaynağı "in-deal=true" (indirimde) filtresiyle geliyor ama listede
+    // eski fiyatı hiç göstermeyen ürünler de olabiliyor — Trendyol'daki gibi
+    // %30 eşiği uygulanır ki gerçek/kayda değer indirimler kalsın.
     const indirim = eskiF > yeniF ? (1 - yeniF / eskiF) : 0;
     const minIndirim = site === 'cimri' ? 0 : 0.30;
     if (indirim < minIndirim) continue;
@@ -570,6 +653,10 @@ async function uploadToFirestore(urunler) {
     if (site === 'cimri') {
       const m = u.link.match(/,(\d+)(?:[/?#]|$)/);
       docId = m ? `cm_${m[1]}` : `cm_${Date.now()}_${count}`;
+    } else if (site === 'n11') {
+      // N11 ürün linkleri: .../urun/<slug>-<id> veya ...-P<id> biçiminde.
+      const m = u.link.match(/-P?(\d+)(?:[/?#]|$)/i);
+      docId = m ? `n11_${m[1]}` : `n11_${Date.now()}_${count}`;
     } else {
       const m = u.link.match(/-p-(\d+)/);
       docId = m ? `ty_${m[1]}` : `ty_${Date.now()}_${count}`;
