@@ -868,17 +868,29 @@ async function processAutoPublishQueue() {
 // ── Otomatik yayın: kalite kapısından geçenleri kuyruğa ekle ──────────────────
 // Düşük puan alanlar staging'de kalır — panelden manuel onay hâlâ mümkün (yedek yol).
 async function autoPublishQualified(staged) {
-  if (!staged.length) return { approved: 0, rejected: 0 };
+  if (!staged.length) return { approved: 0, rejected: 0, approvedItems: [], rejectedItems: [] };
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   const gateResults = await runQualityGate(staged, { apiKey, threshold: 6, db });
   const approved = gateResults.filter(r => r.publish);
   const rejected = gateResults.filter(r => !r.publish);
 
+  // staged ile gateResults'u id üzerinden birleştir — panelde bildirim listesi
+  // için ürün adı/fiyatı lazım (gateResults'ta sadece id/skor/sebep var).
+  const stagedById = new Map(staged.map(s => [s.id, s]));
+  const approvedItems = approved.map(r => {
+    const s = stagedById.get(r.id) || {};
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, score: r.score ?? null, reason: r.reason || '' };
+  });
+  const rejectedItems = rejected.map(r => {
+    const s = stagedById.get(r.id) || {};
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, reason: r.reason || '' };
+  });
+
   rejected.forEach(r => console.log(`   🚫 [Kalite Kapısı] Reddedildi (${r.id}): ${r.reason} — staging'de kaldı`));
   console.log(`[Kalite Kapısı] ${approved.length}/${staged.length} onaylandı, yayın kuyruğuna ekleniyor...`);
 
-  if (approved.length === 0) return { approved: 0, rejected: rejected.length };
+  if (approved.length === 0) return { approved: 0, rejected: rejected.length, approvedItems: [], rejectedItems };
 
   // Puanı staging dokümanına yaz — publishBatch dakikalar sonra (drip kuyruğunda)
   // çalıştığında bildirim eşiğini kontrol edebilsin.
@@ -894,7 +906,7 @@ async function autoPublishQualified(staged) {
   await scoreBatch.commit().catch(() => {});
 
   await enqueueAutoPublish(approved.map(r => r.id));
-  return { approved: approved.length, rejected: rejected.length, queued: true };
+  return { approved: approved.length, rejected: rejected.length, queued: true, approvedItems, rejectedItems };
 }
 
 // ── Tarayıcı aç (paylaşılan ayar) ─────────────────────────────────────────────
@@ -1323,10 +1335,14 @@ async function runScrape(trigger = 'manual', site = null) {
 
   let qualityApproved = 0;
   let qualityRejected = 0;
+  let approvedItems = [];
+  let rejectedItems = [];
   try {
     const gateResult = await autoPublishQualified(staged);
     qualityApproved = gateResult.approved;
     qualityRejected = gateResult.rejected;
+    approvedItems = gateResult.approvedItems || [];
+    rejectedItems = gateResult.rejectedItems || [];
   } catch (e) {
     console.error('[Otomatik Yayın] hata:', e.message);
   }
@@ -1341,6 +1357,8 @@ async function runScrape(trigger = 'manual', site = null) {
         filteredOut,
         newlyStaged: count,
         qualityApproved,
+        approvedItems,
+        rejectedItems,
         qualityRejected,
       });
     } catch (e) {
