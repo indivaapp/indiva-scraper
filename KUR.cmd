@@ -15,7 +15,7 @@ REM kontrol eder - daha guvenilir.
 fsutil dirty query %systemdrive% >nul 2>nul
 if errorlevel 1 (
   echo [HATA] Bu dosyayi "Yonetici olarak calistir" ile baslatmaniz gerekiyor.
-  echo        (KUR.cmd'ye sag tikla -^> "Yonetici olarak calistir")
+  echo        ^(KUR.cmd'ye sag tikla -^> "Yonetici olarak calistir"^)
   echo        Neden: scraper artik gercek bir Windows Servisi olarak kuruluyor
   echo        ^(Session 0'da calisir, Chrome kullaniciya HICBIR ZAMAN gorunmez^)
   echo        ve servis kurulumu yonetici yetkisi gerektirir.
