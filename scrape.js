@@ -192,6 +192,10 @@ async function getBrowserPid(browser) {
 // PowerShell/C# yardımcı script çağırıyoruz, bkz. hide-taskbar.ps1). CDP
 // minimize'a EK bir katman — "best effort": başarısız olsa bile scraping
 // durmaz, Chrome yine de minimize kalır.
+// NOT: Bu, minimizeWindow() gibi TEK SEFERLİK değil, HER sayfa geçişinde
+// tekrar çağrılmalı — Chrome'un pencere/sekme değişiklikleri WS_EX_TOOLWINDOW
+// stilini sıfırlayabiliyor, bu da birkaç sayfa sonra simgenin görev
+// çubuğunda tekrar belirmesine yol açıyordu (canlı şikayette bildirildi).
 function hideFromTaskbar(pid) {
   if (!pid) return;
   const scriptPath = path.join(__dirname, 'hide-taskbar.ps1');
@@ -204,6 +208,30 @@ function hideFromTaskbar(pid) {
     proc.on('error', (e) => console.warn('[GörevÇubuğu] Gizleme başlatılamadı (önemsiz):', e.message));
   } catch (e) {
     console.warn('[GörevÇubuğu] Gizleme hatası (önemsiz):', e.message);
+  }
+}
+
+// Chrome'u güvenli şekilde kapatır — browser.close() bazen (pencere gizli/
+// minimize haldeyken Chrome'un CDP yanıtı askıda kalabildiği için) SONSUZA
+// KADAR TAMAMLANMIYORDU. Canlı şikayet tam olarak buydu: "bazen kapanmıyor,
+// ben Chrome'a tıklayınca kapanıyor" — kullanıcının tıklaması bir OS olayı
+// (WM_ACTIVATE/paint) ilettiği için askıdaki CDP yanıtını serbest bırakıp
+// kapanışı tetikliyordu. Artık close() bir zaman aşımıyla sarmalanıyor;
+// takılırsa OS sürecini PID ile ZORLA sonlandırıyoruz — kullanıcı tıklamak
+// zorunda kalmadan, garanti bir şekilde.
+async function closeBrowserSafely(browser, pid, label) {
+  try {
+    await withTimeout(browser.close(), 8000, `${label} browser.close()`);
+    return;
+  } catch (e) {
+    console.warn(`[Pencere] browser.close() takıldı/başarısız oldu (${label}): ${e.message} — PID ile zorla kapatılıyor.`);
+  }
+  if (pid) {
+    try {
+      spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } catch (e2) {
+      console.warn('[Pencere] taskkill başlatılamadı (önemsiz):', e2.message);
+    }
   }
 }
 
@@ -473,7 +501,10 @@ async function forceCloseAllBrowsers(reason) {
   logChromeEvent('GUVENLIK', `${_openBrowsers.size} acik Chrome ornegi zorla kapatiliyor`, `(sebep: ${reason})`);
   const toClose = [..._openBrowsers];
   _openBrowsers.clear();
-  await Promise.all(toClose.map(b => b.close().catch(() => {})));
+  await Promise.all(toClose.map(async b => {
+    const pid = await getBrowserPid(b).catch(() => null);
+    await closeBrowserSafely(b, pid, 'GUVENLIK');
+  }));
 }
 
 // CIMRI GEÇİCİ OLARAK KAPALI (2026-07-16): Cimri linki çözme adımı (her ürün
@@ -506,15 +537,14 @@ async function scrapeAllSources(sources, siteFilter) {
     args: [
       '--no-sandbox',
       '--disable-dev-shm-usage',
-      // Ekran dışı başlangıç konumu: CDP ile minimize edene kadar geçen ilk
-      // ~1-2 saniyelik açılış anını gizler (Chrome her zaman önce görünür bir
-      // pencereyle başlar, biz bağlanıp "minimize et" diyene kadar). Tek
-      // monitörlü sistemlerde Windows bunu birkaç saniye içinde geri
-      // çekebiliyor ama artık minimizeWindow() hem yeniden deneme mekanizmasına
-      // hem de her sayfa geçişinde tekrar çağrılmaya sahip — bu yüzden geri
-      // çekilse bile hemen tekrar gizleniyor. İkisi birlikte: açılış anındaki
-      // kısa "flash" + uzun taramadaki "tekrar görünür olma" sorunlarının
-      // ikisini de kapatıyor.
+      // Chrome'un KENDİ "başlangıçtan minimize" bayrağı — önceki yöntem
+      // (önce görünür aç, SONRA CDP ile minimize et) arada kaçınılmaz bir
+      // "flash" penceresi bırakıyordu (canlı şikayette "saniyelerce açık
+      // görünüyor" olarak bildirildi). --start-minimized ile pencere DAHA
+      // İLK KAREDEN itibaren minimize durumunda oluşturuluyor — CDP'nin
+      // "yetişmesini" beklemeye gerek kalmıyor. Ekran dışı konum + CDP
+      // minimize (aşağıda) yine de ek güvenlik katmanı olarak duruyor.
+      '--start-minimized',
       '--window-position=-32000,-32000',
       '--window-size=1280,900',
       '--disable-backgrounding-occluded-windows', // arka plan pencere kısılmasın
@@ -593,12 +623,15 @@ async function scrapeAllSources(sources, siteFilter) {
         }
         // Her sayfa yüklemesi (page.goto) veya tıklama (çerez onayı gibi) gibi
         // gerçek kullanıcı etkileşimleri Windows'un pencereyi kendiliğinden
-        // geri yüklemesine (minimized durumdan çıkarmasına) yol açabiliyor —
-        // canlı testte gözlemlendi: pencere taramanın BAŞINDA gizleniyordu ama
+        // geri yüklemesine (minimized durumdan çıkarmasına) VE görev
+        // çubuğundan gizleme stilini sıfırlamasına yol açabiliyor — canlı
+        // testte gözlemlendi: pencere taramanın BAŞINDA gizleniyordu ama
         // birkaç sayfa sonra tekrar görünür hale gelmişti. Tek seferlik
         // gizleme uzun (çok sayfalı) bir tarama boyunca yetmiyor — bu yüzden
-        // HER sayfa geçişinde tekrar deniyoruz (kendi içinde hızlı/best-effort).
+        // İKİSİNİ DE (minimize + görev çubuğu) HER sayfa geçişinde tekrar
+        // uyguluyoruz (ikisi de kendi içinde hızlı/best-effort).
         await minimizeWindow(context, page);
+        hideFromTaskbar(_scanPid);
         // Kartlar görünür görünmez devam et (hızlı + güvenilir)
         await page.waitForSelector(cfg.cardSel, { timeout: 10000 }).catch(() => {});
         const urunler = await extractor(page);
@@ -614,7 +647,7 @@ async function scrapeAllSources(sources, siteFilter) {
     }
   } finally {
     logChromeEvent('TARAMA', `#${_scanInstanceId} CLOSE baslatiliyor`);
-    await browser.close();
+    await closeBrowserSafely(browser, _scanPid, 'TARAMA');
     logChromeEvent('TARAMA', `#${_scanInstanceId} CLOSE tamamlandi`);
   }
   console.log(`[Scraper] Toplam: ${all.length} benzersiz ürün`);
@@ -845,8 +878,10 @@ async function openBrowser() {
     channel: 'chrome',
     args: [
       '--no-sandbox', '--disable-dev-shm-usage',
-      // bkz. scrapeAllSources'taki aynı satır — açılış anındaki kısa
-      // "flash"ı gizler, minimizeWindow() geri kalanını hallediyor.
+      // bkz. scrapeAllSources'taki aynı satır — DAHA İLK KAREDEN minimize
+      // başlatır, "önce görünür aç sonra minimize et" arasındaki flash'ı
+      // tamamen ortadan kaldırır.
+      '--start-minimized',
       '--window-position=-32000,-32000',
       '--window-size=1280,900',
       '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
@@ -876,7 +911,8 @@ async function openBrowser() {
   });
   const firstPage = await context.newPage();
   await firstPage.close();
-  return { browser, context };
+  const pid = await getBrowserPid(browser);
+  return { browser, context, pid };
 }
 
 // ── Paylaşılan (kalıcı) yayın tarayıcısı ─────────────────────────────────────
@@ -893,6 +929,7 @@ async function openBrowser() {
 // (kaynak israfı olmasın diye), bir sonraki ihtiyaçta yeniden açılır.
 let _sharedBrowser = null;
 let _sharedContext = null;
+let _sharedBrowserPid = null;
 let _sharedBrowserIdleTimer = null;
 // ÖNEMLİ: kuyrukta az ürün kalınca (bir sonraki taramaya kalan süreye göre
 // hesaplanan) yayın aralığı kolayca 5 dakikayı AŞABİLİYOR — bu durumda eski
@@ -909,9 +946,10 @@ async function getSharedPublishBrowser() {
   if (_sharedBrowser && _sharedBrowser.isConnected()) {
     return { browser: _sharedBrowser, context: _sharedContext };
   }
-  const { browser, context } = await openBrowser();
+  const { browser, context, pid } = await openBrowser();
   _sharedBrowser = browser;
   _sharedContext = context;
+  _sharedBrowserPid = pid;
   return { browser, context };
 }
 
@@ -924,9 +962,10 @@ function scheduleSharedBrowserIdleClose() {
     _sharedBrowserIdleTimer = null;
     if (_sharedBrowser) {
       logChromeEvent('YAYIN', 'paylasilan surec bosta kaldigi icin kapatiliyor (zaman asimi)');
-      await _sharedBrowser.close().catch(() => {});
+      await closeBrowserSafely(_sharedBrowser, _sharedBrowserPid, 'YAYIN');
       _sharedBrowser = null;
       _sharedContext = null;
+      _sharedBrowserPid = null;
     }
   }, SHARED_BROWSER_IDLE_MS);
 }
@@ -937,9 +976,10 @@ async function closeSharedBrowserNow(reason) {
   if (_sharedBrowserIdleTimer) { clearTimeout(_sharedBrowserIdleTimer); _sharedBrowserIdleTimer = null; }
   if (_sharedBrowser) {
     logChromeEvent('YAYIN', 'paylasilan surec kapatiliyor', `(sebep: ${reason})`);
-    await _sharedBrowser.close().catch(() => {});
+    await closeBrowserSafely(_sharedBrowser, _sharedBrowserPid, 'YAYIN');
     _sharedBrowser = null;
     _sharedContext = null;
+    _sharedBrowserPid = null;
   }
 }
 
