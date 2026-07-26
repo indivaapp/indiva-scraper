@@ -880,11 +880,11 @@ async function autoPublishQualified(staged) {
   const stagedById = new Map(staged.map(s => [s.id, s]));
   const approvedItems = approved.map(r => {
     const s = stagedById.get(r.id) || {};
-    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, score: r.score ?? null, reason: r.reason || '' };
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, link: s.link || null, score: r.score ?? null, reason: r.reason || '' };
   });
   const rejectedItems = rejected.map(r => {
     const s = stagedById.get(r.id) || {};
-    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, reason: r.reason || '' };
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, link: s.link || null, reason: r.reason || '' };
   });
 
   rejected.forEach(r => console.log(`   🚫 [Kalite Kapısı] Reddedildi (${r.id}): ${r.reason} — staging'de kaldı`));
