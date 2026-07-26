@@ -55,6 +55,7 @@ function initFirebase() {
 }
 const db = initFirebase();
 const CONTROL = db.collection('scraper_control');
+const RUN_HISTORY = db.collection('scraper_run_history');
 
 // ── Yayınlanan ürün linkleri: kalıcı yerel önbellek ──────────────────────────
 // ESKİ DAVRANIŞ (BÜYÜK OKUMA MALİYETİ): uploadToFirestore() her taramada
@@ -668,13 +669,15 @@ async function uploadToFirestore(urunler) {
   const now = Timestamp.now();
   let batch = db.batch();
   let count = 0;
+  let alreadyPublished = 0; // dedup: link zaten discounts'ta var
+  let filteredOut = 0; // eksik veri veya indirim eşiğinin altında
   const staged = []; // otomatik yayın kalite kapısı için (docId, fiyat, kategori, link)
   for (const u of urunler) {
     const site = u.site || 'trendyol';
     const yeniF = parseFiyat(u.yeniF);
     const eskiF = parseFiyat(u.eskiF);
-    if (!yeniF || !u.isim || !u.link) continue;
-    if (publishedLinks.has(u.link)) continue;
+    if (!yeniF || !u.isim || !u.link) { filteredOut++; continue; }
+    if (publishedLinks.has(u.link)) { alreadyPublished++; continue; }
 
     // İndirim filtresi siteye göre: Trendyol ≥%30 (sahte/Plus fiyatlarını ele).
     // Cimri zaten "indirimli ürünler" sayfası (küçük indirimler), filtre uygulanmaz.
@@ -683,7 +686,7 @@ async function uploadToFirestore(urunler) {
     // %30 eşiği uygulanır ki gerçek/kayda değer indirimler kalsın.
     const indirim = eskiF > yeniF ? (1 - yeniF / eskiF) : 0;
     const minIndirim = site === 'cimri' ? 0 : 0.30;
-    if (indirim < minIndirim) continue;
+    if (indirim < minIndirim) { filteredOut++; continue; }
 
     // Site bazlı belge ID'si (URL'den ürün ID'si)
     let docId;
@@ -725,7 +728,26 @@ async function uploadToFirestore(urunler) {
     if (count % 450 === 0) { await batch.commit(); batch = db.batch(); }
   }
   await batch.commit();
-  return { count, staged };
+  return { count, staged, alreadyPublished, filteredOut };
+}
+
+// ── Çalışma geçmişi (panelde "son 24 saat" istatistikleri için) ──────────────
+// Her tarama sonunda tek bir özet doküman eklenir (otomatik ID). 24 saatten
+// eski kayıtlar her yeni kayıtta otomatik temizlenir — ayrı bir cron/Firestore
+// TTL politikası kurulumu gerekmez, koleksiyon kendiliğinden küçük kalır.
+async function cleanupOldRunHistory() {
+  const cutoff = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+  const snap = await RUN_HISTORY.where('timestamp', '<', cutoff).limit(500).get();
+  if (snap.empty) return;
+  const batch = db.batch();
+  snap.docs.forEach(d => batch.delete(d.ref));
+  await batch.commit();
+  console.log(`[Geçmiş] ${snap.size} eski kayıt silindi (24 saatten eski).`);
+}
+
+async function recordRunHistory(entry) {
+  await RUN_HISTORY.add({ ...entry, timestamp: Timestamp.now() });
+  await cleanupOldRunHistory().catch(e => console.warn('[Geçmiş] temizlik hatası:', e.message));
 }
 
 // ── Otomatik yayın kuyruğu ("sürekli aktif" hissi) ────────────────────────────
@@ -846,17 +868,29 @@ async function processAutoPublishQueue() {
 // ── Otomatik yayın: kalite kapısından geçenleri kuyruğa ekle ──────────────────
 // Düşük puan alanlar staging'de kalır — panelden manuel onay hâlâ mümkün (yedek yol).
 async function autoPublishQualified(staged) {
-  if (!staged.length) return { approved: 0, rejected: 0 };
+  if (!staged.length) return { approved: 0, rejected: 0, approvedItems: [], rejectedItems: [] };
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   const gateResults = await runQualityGate(staged, { apiKey, threshold: 6, db });
   const approved = gateResults.filter(r => r.publish);
   const rejected = gateResults.filter(r => !r.publish);
 
+  // staged ile gateResults'u id üzerinden birleştir — panelde bildirim listesi
+  // için ürün adı/fiyatı lazım (gateResults'ta sadece id/skor/sebep var).
+  const stagedById = new Map(staged.map(s => [s.id, s]));
+  const approvedItems = approved.map(r => {
+    const s = stagedById.get(r.id) || {};
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, score: r.score ?? null, reason: r.reason || '' };
+  });
+  const rejectedItems = rejected.map(r => {
+    const s = stagedById.get(r.id) || {};
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, reason: r.reason || '' };
+  });
+
   rejected.forEach(r => console.log(`   🚫 [Kalite Kapısı] Reddedildi (${r.id}): ${r.reason} — staging'de kaldı`));
   console.log(`[Kalite Kapısı] ${approved.length}/${staged.length} onaylandı, yayın kuyruğuna ekleniyor...`);
 
-  if (approved.length === 0) return { approved: 0, rejected: rejected.length };
+  if (approved.length === 0) return { approved: 0, rejected: rejected.length, approvedItems: [], rejectedItems };
 
   // Puanı staging dokümanına yaz — publishBatch dakikalar sonra (drip kuyruğunda)
   // çalıştığında bildirim eşiğini kontrol edebilsin.
@@ -872,7 +906,7 @@ async function autoPublishQualified(staged) {
   await scoreBatch.commit().catch(() => {});
 
   await enqueueAutoPublish(approved.map(r => r.id));
-  return { approved: approved.length, rejected: rejected.length, queued: true };
+  return { approved: approved.length, rejected: rejected.length, queued: true, approvedItems, rejectedItems };
 }
 
 // ── Tarayıcı aç (paylaşılan ayar) ─────────────────────────────────────────────
@@ -1247,6 +1281,10 @@ async function runScrape(trigger = 'manual', site = null) {
   let count = 0;
   let staged = [];
   let locked = false;
+  let totalScraped = 0;
+  let alreadyPublished = 0;
+  let filteredOut = 0;
+  let ranSuccessfully = false;
   try {
     await withTimeout((async () => {
       try {
@@ -1263,11 +1301,15 @@ async function runScrape(trigger = 'manual', site = null) {
       await setStatus({ isRunning: true, lastError: null, startedAt: Timestamp.now(), lastTrigger: trigger, lastSite: site || 'tümü', activeOwner: INSTANCE_ID });
       const sources = await loadSources();
       const urunler = await scrapeAllSources(sources, site);
+      totalScraped = urunler.length;
       const uploadResult = await uploadToFirestore(urunler);
       count = uploadResult.count;
       staged = uploadResult.staged;
+      alreadyPublished = uploadResult.alreadyPublished;
+      filteredOut = uploadResult.filteredOut;
       await setStatus({ isRunning: false, lastRunTime: Timestamp.now(), lastRunCount: count, lastError: null });
       console.log(`[Tamamlandı] ${count} ürün staging'e yüklendi.`);
+      ranSuccessfully = true;
     })(), 5 * 60 * 1000, 'Tarama');
   } catch (err) {
     console.error('[Hata]', err.message);
@@ -1291,10 +1333,37 @@ async function runScrape(trigger = 'manual', site = null) {
     _running = false;
   }
 
+  let qualityApproved = 0;
+  let qualityRejected = 0;
+  let approvedItems = [];
+  let rejectedItems = [];
   try {
-    await autoPublishQualified(staged);
+    const gateResult = await autoPublishQualified(staged);
+    qualityApproved = gateResult.approved;
+    qualityRejected = gateResult.rejected;
+    approvedItems = gateResult.approvedItems || [];
+    rejectedItems = gateResult.rejectedItems || [];
   } catch (e) {
     console.error('[Otomatik Yayın] hata:', e.message);
+  }
+
+  if (ranSuccessfully) {
+    try {
+      await recordRunHistory({
+        trigger,
+        site: site || 'tümü',
+        totalScraped,
+        alreadyPublished,
+        filteredOut,
+        newlyStaged: count,
+        qualityApproved,
+        approvedItems,
+        rejectedItems,
+        qualityRejected,
+      });
+    } catch (e) {
+      console.error('[Geçmiş] kayıt hatası:', e.message);
+    }
   }
 
   return count;

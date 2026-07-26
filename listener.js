@@ -76,10 +76,21 @@ CONTROL.doc('publish_request').onSnapshot(async (snap) => {
 setInterval(() => { processPublishQueue().catch(() => {}); }, 60000);
 setInterval(() => { processAutoPublishQueue().catch(() => {}); }, 2000);
 
-// ── Otomatik zamanlama: her saat başı (Trendyol/Cimri) ──────────────────────
+// ── Otomatik zamanlama: Trendyol ve N11 artık AYRI saatlerde ─────────────────
+// Önceden ikisi de aynı saat başı taramasında birlikte taranıyordu (site=null
+// → scrapeAllSources tüm kaynakları tek Chrome oturumunda geziyordu). Kullanıcı
+// isteği: sonuçları site bazlı ayrı ayrı görebilmek (panelde bildirim/geçmiş
+// kayıtları da artık site başına ayrı doküman olduğu için bu tarama düzeyinde
+// de ayrılmazsa iki sitenin istatistikleri tek kayıtta karışırdı).
+//   Trendyol: her saat BAŞI  (12:00, 13:00, 14:00, ...)
+//   N11:      her saat BUÇUĞU (12:30, 13:30, 14:30, ...)
 cron.schedule('0 * * * *', async () => {
-  console.log('[Cron] Otomatik tarama başlıyor...');
-  try { await runScrape('cron'); } catch {}
+  console.log('[Cron] Trendyol otomatik taraması başlıyor...');
+  try { await runScrape('cron', 'trendyol'); } catch {}
+});
+cron.schedule('30 * * * *', async () => {
+  console.log('[Cron] N11 otomatik taraması başlıyor...');
+  try { await runScrape('cron', 'n11'); } catch {}
 });
 
 // ── OnuAl: TAMAMEN DURDURULDU (2026-07-13) ───────────────────────────────────
@@ -87,8 +98,9 @@ cron.schedule('0 * * * *', async () => {
 // zaten ihtiyacı karşılıyor (bkz. GitHub Actions auto-onual.yml — aynı gerekçeyle
 // orada da tamamen durduruldu). Bu PC'deki onual.js bağımsız bir kod yolu olduğu
 // için GitHub Actions tarafını durdurmak bunu durdurmuyordu — saatte bir sessizce
-// çalışmaya devam ediyordu. İleride tekrar gerekirse aşağıdaki satırı geri açın:
-// cron.schedule('30 * * * *', async () => {
+// çalışmaya devam ediyordu. İleride tekrar gerekirse (başka bir dakikada,
+// N11'in :30 taramasıyla çakışmasın diye) aşağıdaki satırı geri açın:
+// cron.schedule('45 * * * *', async () => {
 //   console.log('[Cron] OnuAl taraması başlıyor...');
 //   try { await runOnual(); } catch (e) { console.error('[Cron] OnuAl hatası:', e.message); }
 // });
