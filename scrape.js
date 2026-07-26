@@ -550,6 +550,12 @@ async function scrapeAllSources(sources, siteFilter) {
       '--disable-backgrounding-occluded-windows', // arka plan pencere kısılmasın
       '--disable-renderer-backgrounding',
       '--disable-background-timer-throttling',
+      // Windows Service (Session 0) altında çalışırken gerçek bir ekran/GPU
+      // sürücüsü yok — GPU process bu ortamda başlatılmaya çalışırsa
+      // sessizce çökebilir/yeniden başlama döngüsüne girebilir. Yazılım
+      // render'a zorlamak taramayı etkilemez (sayfa hiç görüntülenmiyor).
+      '--disable-gpu',
+      '--disable-software-rasterizer',
     ],
   });
   registerBrowser(browser, 'TARAMA');
@@ -886,6 +892,9 @@ async function openBrowser() {
       '--window-size=1280,900',
       '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
       '--disable-background-timer-throttling',
+      // bkz. scrapeAllSources'taki aynı satır — Session 0 servis ortamında GPU yok.
+      '--disable-gpu',
+      '--disable-software-rasterizer',
     ],
   });
   logChromeEvent('YAYIN', `#${_pubInstanceId} LAUNCH tamamlandi`);

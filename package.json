@@ -5,7 +5,9 @@
   "main": "listener.js",
   "scripts": {
     "start": "node listener.js",
-    "scrape": "node scrape.js"
+    "scrape": "node scrape.js",
+    "service:install": "node service-install.js",
+    "service:uninstall": "node service-uninstall.js"
   },
   "license": "ISC",
   "type": "commonjs",
@@ -14,6 +16,7 @@
     "cheerio": "^1.0.0",
     "firebase-admin": "^14.0.0",
     "node-cron": "^4.5.0",
+    "node-windows": "^1.0.0-beta.8",
     "playwright": "^1.61.0"
   }
 }

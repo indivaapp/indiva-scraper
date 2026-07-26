@@ -52,15 +52,32 @@ Trendyol, Cloudflare bot korumasını kullanır. Bulut sunucuları (GitHub Actio
 Railway, Render vb.) veri-merkezi IP'leri kullandığından, Cloudflare onları "bot"
 sanıp "Bir dakika lütfen... Güvenlik doğrulaması" sayfası gösterir ve ürün vermez.
 
-Ev/iş yeri internetinin gerçek (residential) IP'si + GÖRÜNÜR (headless olmayan)
-gerçek Chrome ise Cloudflare'i geçer. Bu yüzden:
-  - scrape.js Chrome'u "headless:false" açar (pencere kısa süre görünür — normaldir).
-  - Bu bir masaüstü oturumu gerektirir. Windows Service (Session 0) ÇALIŞMAZ çünkü
-    görünür pencere açamaz. Bu yüzden otomatik başlatma, oturum açılışına bağlıdır.
-  - Bilgisayar sadece AÇIK değil, OTURUMU da AÇIK olmalı.
+Ev/iş yeri internetinin gerçek (residential) IP'si + headless OLMAYAN (yani
+Cloudflare'e "gerçek tarayıcı" gibi görünen, headless:false ile açılan) gerçek
+Chrome ise Cloudflare'i geçer. Bu yüzden scrape.js Chrome'u "headless:false" açar.
+
+ÖNEMLİ — GÜNCEL MİMARİ (Windows Servisi / Session 0): "headless:false" ille de
+kullanıcının GÖRDÜĞÜ bir pencere anlamına gelmez. Windows'ta servisler, Vista'dan
+beri ekranı/klavyesi/faresi OLMAYAN ayrı bir oturumda ("Session 0") çalışır.
+Session 0'da headless:false Chrome başlatıldığında pencere oluşturma çağrıları
+başarıyla tamamlanır ama gösterilecek fiziksel bir ekran YOKTUR — yani Chrome
+gerçek (headless olmayan) bir tarayıcı olarak Cloudflare'i geçer, AMA kullanıcı
+onu asla göremez. scraper artık tam olarak bunu yapıyor: "IndivaScraperService"
+adlı bir Windows Servisi olarak kurulu (bkz. service-install.js), listener.js'i
+Session 0'da çalıştırıyor. Bu yüzden:
+  - PC'nin sadece AÇIK olması yeterli — Windows OTURUMUNUN açık olması GEREKMEZ.
+  - Chrome, tarama sırasında ekranda HİÇBİR ZAMAN görünmez (eski minimize +
+    görev çubuğu gizleme hack'leri artık gerekmiyor, ama ek güvenlik katmanı
+    olarak koddan kaldırılmadı).
+  - "node scrape.js" gibi ELLE, bir terminalden çalıştırılan komutlar hâlâ o
+    terminalin OTURUMUNDA (Session 1+) çalışır — bu yüzden elle test ederken
+    Chrome kısa süreliğine görünür. Bu NORMALDİR ve sadece manuel teste özgüdür;
+    servis üzerinden (telefon tetiği veya cron ile) çalışan taramalar görünmez.
 
 NOT: Cloudflare'i atlatmak için stealth/anti-bot hile araçları KULLANILMAZ. Yöntem
-sadece standart, görünür Chrome ile normal tarama yapmaktır.
+sadece standart, gerçek (headless olmayan) Chrome ile normal tarama yapmaktır —
+Session 0 sadece bu gerçek Chrome'un GÖRÜNTÜSÜNÜ kullanıcıdan gizler, tarama
+davranışını değiştirmez.
 
 ----------------------------------------------------------------------------------
 4) KLASÖRDEKİ DOSYALAR (NE İŞE YARARLAR)
@@ -82,14 +99,31 @@ sadece standart, görünür Chrome ile normal tarama yapmaktır.
   .env ................... Ortam değişkenleri (GEMINI_API_KEY). Kurulumda
                            .env.example'dan kopyala, anahtarı yaz (bkz. Adım 6.5).
   .env.example ........... .env şablonu (gerçek anahtar içermez).
-  start-listener.cmd ..... listener.js'i "çökerse 10 sn sonra yeniden başlat"
-                           döngüsünde çalıştırır. Kendi klasörünü otomatik bulur.
-  install-autostart.ps1 .. Windows Görev Zamanlayıcı'da "IndivaScraperListener" adlı,
-                           oturum açılışında node listener.js'i TAMAMEN GİZLİ (hiçbir
-                           pencere/görev çubuğu ikonu olmadan) çalıştıran bir görev kurar.
-  KUR.cmd ................ TEK-TIK kurulum. Node + service-account.json + Chrome
-                           kontrolü yapar, "npm install" çalıştırır, otomatik
-                           başlatmayı kurar, dinleyiciyi başlatır.
+  service-install.js ..... GÜNCEL/ÖNERİLEN otomatik başlatma yöntemi. listener.js'i
+                           "IndivaScraperService" adlı gerçek bir Windows Servisi
+                           olarak kurar (node-windows paketiyle). Servis Session 0'da
+                           çalışır — Chrome kullanıcı ekranında ASLA görünmez, Windows
+                           oturumu açık olması bile gerekmez. Ayrıca eski Görev
+                           Zamanlayıcı görevini ("IndivaScraperListener") otomatik
+                           kaldırır (çift tarama olmasın diye). Yönetici yetkisi ister.
+  service-uninstall.js ... "IndivaScraperService" servisini kaldırır (geri alma /
+                           yeniden kurulum için). Yönetici yetkisi ister.
+  start-listener.cmd ..... ESKİ/manuel yöntem: listener.js'i "çökerse 10 sn sonra
+                           yeniden başlat" döngüsünde, GÖRÜNÜR bir konsol penceresinde
+                           çalıştırır. Sadece elle test için kullanışlı; kalıcı
+                           otomatik başlatma için service-install.js kullanılmalı.
+  install-autostart.ps1 .. ESKİ yöntem (artık KUR.cmd tarafından kullanılmıyor):
+                           Windows Görev Zamanlayıcı'da "IndivaScraperListener" adlı,
+                           oturum açılışında node listener.js'i gizli bir konsol
+                           penceresinde çalıştıran bir görev kurar. Bu yöntemde Chrome
+                           yine de kullanıcının kendi Session 1+ oturumunda açıldığından
+                           minimize/görev çubuğu gizleme hack'lerine bağımlıydı ve
+                           oturum açık olmasını gerektiriyordu — service-install.js
+                           bunun yerini aldı, sadece geriye dönük referans için duruyor.
+  KUR.cmd ................ TEK-TIK kurulum. Yönetici yetkisi kontrolü + Node +
+                           service-account.json + Chrome kontrolü yapar, "npm install"
+                           çalıştırır, service-install.js ile Windows Servisini kurar
+                           ve başlatır.
   KURULUM.md ............. Kısa kurulum özeti.
   KURULUM-REHBERI.txt .... (Bu dosya) Detaylı rehber.
 
@@ -158,27 +192,36 @@ BAŞARI KONTROLÜ: .env dosyası var ve GEMINI_API_KEY=AIzaSy... şeklinde dolu.
 
 --- ADIM 6.4: KURULUM (iki yöntemden biri) ---
 
+ÖNEMLİ: Windows Servisi kurmak yönetici (Administrator) yetkisi gerektirir.
+KUR.cmd'yi veya PowerShell'i "Yönetici olarak çalıştır" ile başlat.
+
 YÖNTEM A (kolay, önerilen): KUR.cmd
-    C:\trendyol-scraper klasöründe KUR.cmd dosyasına çift tıkla
-    (veya terminalde: cd C:\trendyol-scraper && KUR.cmd).
-    Sırayla: bağımlılıkları kurar → otomatik başlatmayı ayarlar → dinleyiciyi başlatır.
+    C:\trendyol-scraper klasöründe KUR.cmd dosyasına SAĞ TIK → "Yönetici olarak
+    çalıştır" (veya yönetici terminalde: cd C:\trendyol-scraper && KUR.cmd).
+    Sırayla: yönetici yetkisi kontrolü → bağımlılıkları kurar (npm install) →
+    "IndivaScraperService" Windows Servisini kurar ve başlatır.
     "Windows bilgisayarınızı korudu" uyarısı çıkarsa: "Ek bilgi" → "Yine de çalıştır".
     Sonunda "TAMAMLANDI" yazmalı.
 
-YÖNTEM B (manuel, terminalden): Aşağıdaki komutları C:\trendyol-scraper içinde çalıştır:
+YÖNTEM B (manuel, yönetici terminalden): Aşağıdaki komutları C:\trendyol-scraper
+içinde, YÖNETİCİ olarak açılmış bir terminalde çalıştır:
     1) npm install
-       (firebase-admin, playwright, node-cron iner. Birkaç dakika sürebilir.
-        Playwright'ın AYRI tarayıcı indirmesine GEREK YOK; sistem Chrome'u kullanıyoruz.)
-    2) powershell -ExecutionPolicy Bypass -File "install-autostart.ps1"
-       (Açılışta otomatik başlatmayı kurar.)
-    3) start "" /min "start-listener.cmd"
-       (Dinleyiciyi başlatır.)
+       (firebase-admin, playwright, node-cron, node-windows iner. Birkaç dakika
+        sürebilir. Playwright'ın AYRI tarayıcı indirmesine GEREK YOK; sistem
+        Chrome'u kullanıyoruz.)
+    2) node service-install.js
+       ("IndivaScraperService" Windows Servisini kurar, başlatır ve varsa eski
+        Görev Zamanlayıcı görevini kaldırır.)
 
 BAŞARI KONTROLÜ (6.4):
     - "npm install" hatasız bitti.
-    - Görev Yöneticisi'nde "node.exe" süreci görünüyor (dinleyici çalışıyor).
-    - Görev Zamanlayıcı'da görev kurulu: Win+R → taskschd.msc → sol ağaçta
-      "Task Scheduler Library" → listede "IndivaScraperListener" görünmeli.
+    - "node service-install.js" sonunda "Servis başlatıldı." yazdı.
+    - Servis kurulu ve çalışıyor: Win+R → services.msc → listede
+      "IndivaScraperService" bulunmalı, "Durum" sütunu "Çalışıyor" olmalı.
+      (PowerShell'den de kontrol edilebilir: Get-Service IndivaScraperService)
+    - Görev Yöneticisi'nde "Ayrıntılar" sekmesinde node.exe süreci görünür
+      (SYSTEM kullanıcısı altında — bu normaldir, Session 0'da çalıştığının
+      göstergesidir).
 
 --- ADIM 6.5 (ÖNERİLİR — PAYLAŞILAN/GÖZ ÖNÜNDEKİ BİLGİSAYARLAR İÇİN) ---
 Bu bilgisayarı başkaları da kullanıyorsa: tarama sırasında Chrome kısa süreliğine
@@ -205,7 +248,10 @@ Bundan sonra scraper hep bu ikinci hesabın kendi oturumunda (kendi görev
 TEST A — Trendyol taraması (en kesin test):
     Bu klasörde terminalde:
         node scrape.js
-    Beklenen: Chrome penceresi kısa süre açılır, terminalde şuna benzer satırlar:
+    NOT: Bu, ELLE terminalden çalıştırıldığı için Chrome kısa süre GÖRÜNÜR açılır
+    (terminalin kendi oturumunda çalışır, Session 0'da değil). Bu sadece manuel
+    teste özgüdür ve normaldir — servis üzerinden (telefon tetiği/cron) çalışan
+    taramalarda Chrome hiç görünmez. Terminalde şuna benzer satırlar beklenir:
         [Kampanya Ürünleri] Tarıyor...
         [Kampanya Ürünleri] Sayfa 1: 44 yeni ürün
         ...
@@ -230,9 +276,11 @@ TEST C — OnuAl taraması:
     BAŞARISIZ: "Gemini hatası" → GEMINI_API_KEY geçerliliğini kontrol et.
 
 TEST B — Telefondan tetikleme:
-    Dinleyici çalışırken (KUR.cmd sonrası), telefonda panelde "🛒 Şimdi Veri Çek"e bas.
-    Beklenen: Birkaç saniye içinde bu bilgisayarda Chrome açılır, tarama olur,
-    panelde "Onay Bekleyen Ürünler" sayısı artar.
+    Dinleyici çalışırken (KUR.cmd sonrası, servis "Çalışıyor" durumunda), telefonda
+    panelde "🛒 Şimdi Veri Çek"e bas.
+    Beklenen: Birkaç saniye içinde bu bilgisayarda arka planda tarama olur (Chrome
+    GÖRÜNMEZ — servis Session 0'da çalışır), panelde "Onay Bekleyen Ürünler" sayısı
+    artar. Chrome'un görünmemesi bir HATA değildir, beklenen davranıştır.
 
 ----------------------------------------------------------------------------------
 8) DİĞER BİLGİSAYARDAKİ DİNLEYİCİYİ KAPATMA (ÇİFT TARAMAYI ÖNLE)
@@ -240,9 +288,13 @@ TEST B — Telefondan tetikleme:
 Bu sistem daha önce BAŞKA bir bilgisayarda da kuruluydu. İki bilgisayar aynı anda
 dinlerse, tek tetikte İKİ KEZ tarar. Bu yeni (sürekli açık) bilgisayarı devreye
 aldıktan sonra, ESKİ bilgisayarda otomatik başlatmayı kapatmak gerekir:
-    Eski bilgisayarda: Win+R → taskschd.msc → "IndivaScraperListener" görevini
-    bul, sağ tık → Devre Dışı Bırak (veya Sil).
-    Ve çalışan node.exe sürecini Görev Yöneticisi'nden kapat.
+    Eski bilgisayarda (güncel/servis kurulumu varsa): yönetici terminalde
+    "node service-uninstall.js" çalıştır, ya da Win+R → services.msc →
+    "IndivaScraperService" → sağ tık → Durdur, sonra Özellikler → Başlangıç
+    Türü → Devre Dışı.
+    Eski bilgisayarda hâlâ ESKİ (Görev Zamanlayıcı) yöntemi kuruluysa: Win+R →
+    taskschd.msc → "IndivaScraperListener" görevini bul, sağ tık → Devre Dışı
+    Bırak (veya Sil). Ve çalışan node.exe sürecini Görev Yöneticisi'nden kapat.
 (Bu adım, kurulumu yapan kişinin eski bilgisayara erişimi varsa yapılır.)
 
 ----------------------------------------------------------------------------------
@@ -262,8 +314,6 @@ HATA / DURUM: Tarama oluyor ama "Sayfa 1: 0 yeni ürün", hiç ürün gelmiyor.
     - Bu bilgisayar normal ev/iş yeri internetinde olmalı. Kurumsal VPN/proxy
       trafiği veri-merkezine yönlendiriyorsa Cloudflare'e takılabilir; VPN'i kapatıp
       dene.
-    - Tarama bir masaüstü OTURUMUNDA çalışmalı (uzaktan/servis oturumunda görünür
-      Chrome açılamayabilir).
 
 HATA: "node" komutu tanınmıyor / 'node' is not recognized.
   SEBEP: Node.js kurulu değil ya da PATH yenilenmedi.
@@ -273,20 +323,27 @@ HATA: "npm install" sırasında ağ/erişim hatası.
   ÇÖZÜM: İnterneti kontrol et, tekrar "npm install" çalıştır. Kurumsal ağ npm'i
   engelliyorsa farklı ağ dene.
 
-DURUM: Chrome penceresi hiç açılmıyor / dinleyici tetiğe yanıt vermiyor.
+DURUM: Dinleyici tetiğe yanıt vermiyor (Chrome'un görünmemesi normaldir — servis
+Session 0'da çalışır, HATA belirtisi DEĞİLDİR).
   KONTROL:
-    - node.exe süreci çalışıyor mu? (Görev Yöneticisi)
-    - Çalışmıyorsa: bu klasörde "start-listener.cmd" çift tıkla, açılan pencerede
-      hata mesajını oku.
-    - Manuel test: "node listener.js" çalıştır; "[Dinleyici] Tetik dinleniyor..."
-      yazmalı. Sonra telefondan tetikle.
+    - Servis çalışıyor mu? services.msc → "IndivaScraperService" → Durum
+      "Çalışıyor" olmalı. Değilse sağ tık → Başlat.
+    - Servis logları: bu klasörde "daemon\" alt klasöründeki
+      IndivaScraperService.out.log / .err.log dosyalarına bak (node-windows
+      buraya yazar).
+    - Manuel test (Chrome görünür şekilde): yönetici OLMAYAN normal bir
+      terminalde "node listener.js" çalıştır; "[Dinleyici] Tetik dinleniyor..."
+      yazmalı. Sonra telefondan tetikle, tarama olduğunu doğrula. Çalışıyorsa
+      sorun servis kurulumundadır (bir alttaki adım), scraper kodunda değil.
+    - Servisi yeniden kur: yönetici terminalde "node service-uninstall.js"
+      sonra "node service-install.js".
 
 DURUM: PC yeniden başlayınca dinleyici kendiliğinden başlamadı.
-  SEBEP: Otomatik başlatma yalnızca Windows OTURUMU AÇILINCA çalışır (görünür Chrome
-  için gerekli). PC açık ama kilitli/oturum kapalıysa başlamaz.
-  ÇÖZÜM: Windows'a giriş yapılmış (oturum açık) olmalı. Görev Zamanlayıcı'da
-  "IndivaScraperListener" görevinin kurulu ve "Etkin" (Enabled) olduğunu
-  doğrula (taskschd.msc).
+  SEBEP: Servis "Başlangıç Türü" yanlış ayarlanmış olabilir (node-windows
+  varsayılan olarak "Otomatik" kurar).
+  ÇÖZÜM: services.msc → "IndivaScraperService" → Özellikler → "Başlangıç Türü"
+  → "Otomatik" seç → Tamam. Windows OTURUMU açık olması GEREKMEZ — servis PC
+  açılır açılmaz (oturum açılmadan önce bile) başlar.
 
 DURUM: Çift ürün / her tetikte iki tarama.
   SEBEP: İki bilgisayarda birden dinleyici çalışıyor.
@@ -341,12 +398,13 @@ Fiyat mantığı (scrape.js):
 Lazy-load: Trendyol arama sayfası SONSUZ kaydırma kullanır. scrape.js bilerek SADECE
 sabit sayıda (5 adım) kaydırır; sonsuza inmez. Bu yüzden sayfa başına ~40 ürün alır.
 
-Çökme dayanıklılığı: start-listener.cmd, listener.js çökerse 10 sn sonra yeniden
-başlatır (sonsuz döngü — sadece elle test için, ör. "start-listener.cmd" çift
-tıklanınca). Otomatik başlatma (Görev Zamanlayıcı) ise node.exe'yi doğrudan,
-hiç pencere açmadan çalıştırır; o çökerse Görev Zamanlayıcı kendi kendine
-yeniden başlatmaz — bir sonraki oturum açılışında veya elle tekrar
-"Start-ScheduledTask -TaskName IndivaScraperListener" ile başlatılabilir.
+Çökme dayanıklılığı: "IndivaScraperService" (node-windows) listener.js çökerse
+kendi native restart mantığıyla otomatik yeniden başlatır (bkz. service-install.js
+içindeki wait/grow/maxRestarts ayarları — üstel geri çekilmeli, maks. 999 deneme).
+Ayrıca PC yeniden başladığında servis "Otomatik" başlangıç türüyle, OTURUM
+AÇILMADAN ÖNCE bile kendiliğinden başlar. start-listener.cmd (10 sn sonra
+yeniden başlatan döngü) artık sadece elle/görünür test için kullanılır, kalıcı
+otomatik başlatma bunu kullanmaz.
 
 GitHub: Kod yedeği özel repoda (sualtikasifi/indiva-scraper). Kurulum için repoya
 ihtiyaç yok; bu klasör yeterli.
@@ -362,8 +420,11 @@ ihtiyaç yok; bu klasör yeterli.
 - Chrome penceresinin tarama sırasında kısa süre açılması NORMALDİR; kapatma.
 - Bir hatayı çözemezsen: terminaldeki tam hata metnini ve "node scrape.js" çıktısını
   kaydet; bunlar teşhis için en değerli bilgidir.
-- Kurulum bitince kullanıcıya şunu doğrula: (1) node.exe çalışıyor, (2) taskschd.msc'de
-  .vbs var, (3) telefondan "Veri Çek" ürünleri getiriyor.
+- Kurulum bitince kullanıcıya şunu doğrula: (1) services.msc'de "IndivaScraperService"
+  "Çalışıyor" durumda, (2) telefondan "Veri Çek" ürünleri getiriyor, (3) tarama
+  sırasında ekranda Chrome GÖRÜNMÜYOR (bu artık beklenen/istenen davranış).
+- KUR.cmd / service-install.js YÖNETİCİ yetkisi gerektirir — "Yönetici olarak
+  çalıştır" ile başlatılmadıysa servis kurulumu başarısız olur.
 
 ==================================================================================
   REHBER SONU

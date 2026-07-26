@@ -12,16 +12,19 @@ bu PC tarar. Aynı ağda olmak gerekmez.
 ## Adımlar
 1. Bu klasörü hedef PC'ye kopyala (GitHub'dan ZIP indir veya `git clone`).
 2. Firebase anahtar dosyasını bu klasöre **`service-account.json`** adıyla koy.
-3. **`KUR.cmd`** dosyasına çift tıkla.
+3. **`KUR.cmd`** dosyasına **sağ tık → "Yönetici olarak çalıştır"**.
    - Bağımlılıkları kurar (`npm install`)
-   - PC açılışında otomatik başlamayı ayarlar
-   - Dinleyiciyi hemen başlatır
-4. Bitti. Telefondan panelde "🛒 Şimdi Veri Çek" → bu PC tarar.
+   - `IndivaScraperService` adlı bir **Windows Servisi** kurar ve başlatır
+     (Session 0'da çalışır — Chrome ekranda **hiçbir zaman görünmez**)
+4. Bitti. Telefondan panelde "🛒 Şimdi Veri Çek" → bu PC tarar (görünmeden).
 
 ## Önemli notlar
-- Hedef PC **açık ve oturum açık** olmalı (headless olmayan Chrome masaüstü oturumu gerektirir).
+- Hedef PC **açık** olmalı — Windows **oturumunun açık olması artık gerekmiyor**
+  (servis Session 0'da, oturumdan bağımsız çalışır).
+- Kurulum yönetici (Administrator) yetkisi gerektirir.
 - Tek bir PC dinleyici çalıştırmalı. Birden fazla PC çalıştırırsa aynı tetikte iki kez tarar.
-  Bu PC'yi devreye alınca, eski PC'deki otomatik başlatmayı kapat:
-  Başlangıç klasöründen `indiva-scraper-runner.vbs` dosyasını sil
-  (`shell:startup` çalıştır → dosyayı sil).
+  Bu PC'yi devreye alınca, eski PC'deki otomatik başlatmayı kapat: yönetici terminalde
+  `node service-uninstall.js` çalıştır (eski Görev Zamanlayıcı kurulumu varsa
+  `services.msc`/`taskschd.msc`'den elle kaldır).
 - `service-account.json` gizli bir anahtardır; kimseyle paylaşma, repoya ekleme (gitignore'da).
+- Servis durumu: `services.msc` → `IndivaScraperService`. Loglar: `daemon\` klasörü.
