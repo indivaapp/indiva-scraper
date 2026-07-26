@@ -7,7 +7,12 @@ echo ============================================
 echo.
 
 REM 0) Yonetici yetkisi var mi? Windows Servisi kurmak icin sart.
-net session >nul 2>nul
+REM NOT: "net session" bunun icin yaygin kullanilir ama Windows'un "Server"
+REM (LanmanServer) servisi kapaliysa (birçok ev bilgisayarinda kapalidir)
+REM yonetici olsan bile hata doner - yanlis pozitif verir. "fsutil dirty
+REM query" ise hicbir servise bagli olmadan sadece yonetici yetkisini
+REM kontrol eder - daha guvenilir.
+fsutil dirty query %systemdrive% >nul 2>nul
 if errorlevel 1 (
   echo [HATA] Bu dosyayi "Yonetici olarak calistir" ile baslatmaniz gerekiyor.
   echo        (KUR.cmd'ye sag tikla -^> "Yonetici olarak calistir")
