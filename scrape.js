@@ -679,15 +679,6 @@ async function uploadToFirestore(urunler) {
     if (!yeniF || !u.isim || !u.link) { filteredOut++; continue; }
     if (publishedLinks.has(u.link)) { alreadyPublished++; continue; }
 
-    // İndirim filtresi siteye göre: Trendyol ≥%30 (sahte/Plus fiyatlarını ele).
-    // Cimri zaten "indirimli ürünler" sayfası (küçük indirimler), filtre uygulanmaz.
-    // N11 kaynağı "in-deal=true" (indirimde) filtresiyle geliyor ama listede
-    // eski fiyatı hiç göstermeyen ürünler de olabiliyor — Trendyol'daki gibi
-    // %30 eşiği uygulanır ki gerçek/kayda değer indirimler kalsın.
-    const indirim = eskiF > yeniF ? (1 - yeniF / eskiF) : 0;
-    const minIndirim = site === 'cimri' ? 0 : 0.30;
-    if (indirim < minIndirim) { filteredOut++; continue; }
-
     // Site bazlı belge ID'si (URL'den ürün ID'si)
     let docId;
     if (site === 'cimri') {
@@ -870,17 +861,16 @@ async function processAutoPublishQueue() {
 async function autoPublishQualified(staged) {
   if (!staged.length) return { approved: 0, rejected: 0, approvedItems: [], rejectedItems: [] };
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  const gateResults = await runQualityGate(staged, { apiKey, threshold: 6, db });
+  const gateResults = await runQualityGate(staged, { db });
   const approved = gateResults.filter(r => r.publish);
   const rejected = gateResults.filter(r => !r.publish);
 
   // staged ile gateResults'u id üzerinden birleştir — panelde bildirim listesi
-  // için ürün adı/fiyatı lazım (gateResults'ta sadece id/skor/sebep var).
+  // için ürün adı/fiyatı lazım (gateResults'ta sadece id/sebep var).
   const stagedById = new Map(staged.map(s => [s.id, s]));
   const approvedItems = approved.map(r => {
     const s = stagedById.get(r.id) || {};
-    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, link: s.link || null, score: r.score ?? null, reason: r.reason || '' };
+    return { id: r.id, title: s.title || '', newPrice: s.newPrice ?? null, oldPrice: s.oldPrice ?? null, site: s.site || null, link: s.link || null, reason: r.reason || '' };
   });
   const rejectedItems = rejected.map(r => {
     const s = stagedById.get(r.id) || {};
@@ -891,19 +881,6 @@ async function autoPublishQualified(staged) {
   console.log(`[Kalite Kapısı] ${approved.length}/${staged.length} onaylandı, yayın kuyruğuna ekleniyor...`);
 
   if (approved.length === 0) return { approved: 0, rejected: rejected.length, approvedItems: [], rejectedItems };
-
-  // Puanı staging dokümanına yaz — publishBatch dakikalar sonra (drip kuyruğunda)
-  // çalıştığında bildirim eşiğini kontrol edebilsin.
-  const scoreBatch = db.batch();
-  approved.forEach(r => {
-    scoreBatch.update(db.collection('trendyol_staging').doc(r.id), {
-      qualityScore: r.score,
-      satisPotansiyeli: r.satisPotansiyeli ?? null,
-      ilgiCekicilik: r.ilgiCekicilik ?? null,
-      qualityReason: r.reason || '',
-    });
-  });
-  await scoreBatch.commit().catch(() => {});
 
   await enqueueAutoPublish(approved.map(r => r.id));
   return { approved: approved.length, rejected: rejected.length, queued: true, approvedItems, rejectedItems };
