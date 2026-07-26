@@ -6,6 +6,24 @@ echo   INDIVA Trendyol Scraper - Kurulum
 echo ============================================
 echo.
 
+REM 0) Yonetici yetkisi var mi? Windows Servisi kurmak icin sart.
+REM NOT: "net session" bunun icin yaygin kullanilir ama Windows'un "Server"
+REM (LanmanServer) servisi kapaliysa (birçok ev bilgisayarinda kapalidir)
+REM yonetici olsan bile hata doner - yanlis pozitif verir. "fsutil dirty
+REM query" ise hicbir servise bagli olmadan sadece yonetici yetkisini
+REM kontrol eder - daha guvenilir.
+fsutil dirty query %systemdrive% >nul 2>nul
+if errorlevel 1 (
+  echo [HATA] Bu dosyayi "Yonetici olarak calistir" ile baslatmaniz gerekiyor.
+  echo        ^(KUR.cmd'ye sag tikla -^> "Yonetici olarak calistir"^)
+  echo        Neden: scraper artik gercek bir Windows Servisi olarak kuruluyor
+  echo        ^(Session 0'da calisir, Chrome kullaniciya HICBIR ZAMAN gorunmez^)
+  echo        ve servis kurulumu yonetici yetkisi gerektirir.
+  echo.
+  pause
+  exit /b 1
+)
+
 REM 1) Node.js var mi?
 where node >nul 2>nul
 if errorlevel 1 (
@@ -41,19 +59,24 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/3] Otomatik baslatma ayarlaniyor...
-powershell -ExecutionPolicy Bypass -File "%~dp0install-autostart.ps1"
-
-echo.
-echo [3/3] Dinleyici baslatiliyor...
-start "" /min "%~dp0start-listener.cmd"
+echo [2/2] Windows Servisi kuruluyor ve baslatiliyor...
+echo       (Session 0'da calisir - Chrome PC ekraninda ASLA gorunmez,
+echo        oturum acik olmasi bile gerekmez.)
+call node service-install.js
+if errorlevel 1 (
+  echo [HATA] Servis kurulumu basarisiz oldu. Yukaridaki hataya bakin.
+  pause
+  exit /b 1
+)
 
 echo.
 echo ============================================
 echo   TAMAMLANDI
-echo   Dinleyici calisiyor ve PC her acildiginda
-echo   otomatik baslayacak. Artik telefondan
-echo   "Veri Cek" ile tetikleyebilirsiniz.
+echo   "IndivaScraperService" servisi calisiyor ve
+echo   PC her acildiginda otomatik baslayacak - oturum
+echo   acmasaniz bile. Artik telefondan "Veri Cek" ile
+echo   tetikleyebilirsiniz. Durumu gormek icin:
+echo   services.msc -^> IndivaScraperService
 echo ============================================
 echo.
 pause
