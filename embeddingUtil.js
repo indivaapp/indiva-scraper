@@ -11,7 +11,7 @@
  * ürün dokümanına yazılır ama YAYIN KARARINI ETKİLEMEZ.
  */
 
-const EMBED_MODEL = 'text-embedding-004';
+const EMBED_MODEL = 'gemini-embedding-001';
 const TOP_K = 10;
 
 function buildEmbeddingText({ title, brand, category, storeName }) {
