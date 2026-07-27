@@ -16,7 +16,7 @@ jobs:
   scrape:
     # PC'deki self-hosted runner — Trendyol Cloudflare'i ev IP'sinde geçer
     runs-on: self-hosted
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
