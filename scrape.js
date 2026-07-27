@@ -12,6 +12,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 const { runQualityGate, normalizeLink, checkExistingLinks } = require('./qualityGate.js');
 const { maybeNotifyHighScoreDeal } = require('./notifyGate.js');
 const { maybeQueueSocialContent } = require('./socialContentGate.js');
+const { buildEmbeddingText, getEmbedding, judgeBySimilarity, loadFeedbackEmbeddings } = require('./embeddingUtil.js');
 
 // .env dosyasından ortam değişkenlerini yükle (GEMINI_API_KEY için) — kendi
 // içinde yükler, onual.js'in yan etkisine bağımlı kalmaz.
@@ -1117,6 +1118,13 @@ async function publishBatch(ids) {
   if (!locked) { console.log('[Yayın] Başka iş çalışıyor — atlandı.'); return { done, failed, skipped: true }; }
 
   const { context } = await getSharedPublishBrowser();
+  // AI "emsal edinme" önerisi (bkz. embeddingUtil.js) — YAYIN KARARINI
+  // ETKİLEMEZ, sadece dokümana danışma amaçlı bir alan olarak eklenir. Karar
+  // LLM'e sormadan cosine similarity ile çıkarıldığı için maliyeti (varsa)
+  // tek bir ucuz embedding çağrısıdır.
+  const feedbackEmbeddings = process.env.GEMINI_API_KEY
+    ? await loadFeedbackEmbeddings(db).catch(() => [])
+    : [];
   try {
     for (const id of ids) {
       try {
@@ -1152,6 +1160,17 @@ async function publishBatch(ids) {
           continue;
         }
 
+        let aiSimilarityJudgment = null;
+        if (feedbackEmbeddings.length > 0) {
+          const candidateEmbedding = await getEmbedding(
+            buildEmbeddingText({ title: p.title, brand: p.brand, category: p.category, storeName }),
+            process.env.GEMINI_API_KEY
+          );
+          if (candidateEmbedding) {
+            aiSimilarityJudgment = judgeBySimilarity(candidateEmbedding, feedbackEmbeddings);
+          }
+        }
+
         const newRef = await db.collection('discounts').add({
           title: p.title, brand: p.brand, category: p.category,
           newPrice: p.newPrice, oldPrice: p.oldPrice, imageUrl: p.imageUrl,
@@ -1171,6 +1190,7 @@ async function publishBatch(ids) {
             qualityReason: p.qualityReason || '',
             autoPublishedAt: Timestamp.now(),
           } : {}),
+          ...(aiSimilarityJudgment ? { aiSimilarityJudgment } : {}),
         });
         await ref.delete();
         done++;
