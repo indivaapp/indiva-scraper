@@ -245,7 +245,7 @@ const DEFAULT_SOURCES = [
     label: 'Kampanya Ürünleri',
     description: 'Kırmızı/turuncu/sarı etiketli, %50+ indirimli ürünler',
     baseUrl: 'https://www.trendyol.com/sr?tag=kirmizi_kampanya_urunu%2Cturuncu_kampanya_urunu%2Csari_kampanya_urunu&lpd=10,14,30&sst=SCORE&dcr=50',
-    pages: 5,
+    pages: 8,
     enabled: true,
   },
   {
@@ -254,7 +254,7 @@ const DEFAULT_SOURCES = [
     label: 'En Çok Satanlar',
     description: 'Kampanya ürünleri arasında en çok satanlar',
     baseUrl: 'https://www.trendyol.com/sr?tag=kirmizi_kampanya_urunu%2Cturuncu_kampanya_urunu%2Csari_kampanya_urunu&lpd=10,14,30&sst=BEST_SELLER&dcr=50',
-    pages: 4,
+    pages: 6,
     enabled: true,
   },
   {
@@ -263,7 +263,7 @@ const DEFAULT_SOURCES = [
     label: 'En Yeniler',
     description: 'Yeni eklenen indirimli kampanya ürünleri',
     baseUrl: 'https://www.trendyol.com/sr?tag=kirmizi_kampanya_urunu%2Cturuncu_kampanya_urunu%2Csari_kampanya_urunu&lpd=10,14,30&sst=MOST_RECENT&dcr=50',
-    pages: 4,
+    pages: 6,
     enabled: true,
   },
   // ── Cimri ──
@@ -289,7 +289,7 @@ const DEFAULT_SOURCES = [
     label: 'İndirimdeki Ürünler',
     description: "N11'de indirimde olan, satış hacmine göre sıralı ürünler",
     baseUrl: 'https://www.n11.com/arama?in-deal=true&srt=SALES_VOLUME&promotions=2076410',
-    pages: 5,
+    pages: 8,
     enabled: true,
   },
 ];
